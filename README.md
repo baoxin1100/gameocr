@@ -4,6 +4,22 @@
 
 基于 Python + PyQt5 的游戏画面 OCR 实时翻译工具。项目按需求拆分为 OCR/OpenVINO、翻译后端、全局热键、截图选区、半透明悬浮窗、实时循环与 GUI 配置持久化等模块。
 
+## 下载使用（推荐）
+
+普通用户无需安装 Python 环境，直接下载 Windows 单文件 EXE 即可运行：
+
+- 最新版本：`v1.0.0`
+- 下载地址：[GameOCR-v1.0.0.exe](https://github.com/baoxin1100/gameocr/releases/download/v1.0.0/GameOCR-v1.0.0.exe)
+- Release 页面：[https://github.com/baoxin1100/gameocr/releases/tag/v1.0.0](https://github.com/baoxin1100/gameocr/releases/tag/v1.0.0)
+
+使用步骤：
+
+1. 下载 `GameOCR-v1.0.0.exe`。
+2. 双击运行程序；如系统提示未知发布者，请选择允许运行。
+3. 如果目标游戏以管理员权限运行，请右键 EXE 选择“以管理员身份运行”，否则全局热键、截图或悬浮窗可能无法正常作用于该游戏。
+4. 首次启动后在 GUI 中选择翻译引擎、语言、热键、截图目标和实时翻译参数，点击“保存配置”。
+5. 进入游戏后按默认触发热键 `F8` 开始/停止 OCR 翻译。
+
 ## 界面与效果
 
 ![工具界面](images/工具界面.png)
@@ -159,7 +175,7 @@ dist/实时汉化工具.exe
 
 如需使用自定义 PaddleOCR ONNX 模型，请将模型放入 `models/paddleocr` 后再打包；未放置自定义模型时，程序会随包携带 `onnxocr` 发行版内置模型资源。程序图标位于 `assets/gameocr.ico`，打包时会自动作为 EXE 图标并内置到运行资源中；`assets/gameocr_icon.png` 可用于预览或文档展示。图标为紫色玻璃质感圆角矩形，白色文字“实时/汉化”上下两行排列，如需重新生成可执行 `python tools\generate_icon.py`。
 
-本仓库已在 Windows 11 + Python 3.13 conda 环境下验证 PyInstaller 构建通过，生成的 `dist/实时汉化工具.exe` 约 196 MB，并已验证 EXE 可正常启动。PyInstaller 的 `warn-gameocr.txt` 中仍可能出现 Linux/macOS 模块、可选网络库、OpenVINO 转换器扩展等缺失提示，属于依赖包的条件/可选导入，不影响 Windows 桌面 OCR 翻译主流程。
+本仓库已在 Windows 11 + Python 3.13 conda 环境下验证 PyInstaller 构建通过，生成的 `dist/实时汉化工具.exe` 约 224 MB，并已验证 EXE 可正常启动。PyInstaller 的 `warn-gameocr.txt` 中仍可能出现 Linux/macOS 模块、可选网络库、OpenVINO 转换器扩展等缺失提示，属于依赖包的条件/可选导入，不影响 Windows 桌面 OCR 翻译主流程。
 
 ## 开发/验证
 
