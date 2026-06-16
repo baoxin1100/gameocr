@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 CONFIG_DIR = Path.home() / ".gameocr"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+CONFIG_SCHEMA_VERSION = 3
 
 
 LANGUAGES = {
@@ -57,6 +58,10 @@ TRANSLATION_THEME_LABELS = {
     "light": "浅色纸张",
     "purple": "紫色霓虹",
 }
+
+TRANSLATION_FONT_SIZE_MIN = 8
+TRANSLATION_FONT_SIZE_MAX = 48
+TRANSLATION_FONT_SIZE_DEFAULT = 11
 
 TRANSLATION_SCOPE_FULLSCREEN = "fullscreen"
 TRANSLATION_SCOPE_REGION = "region"
@@ -134,14 +139,17 @@ class OCRConfig:
 
 @dataclass
 class AppConfig:
+    config_version: int = CONFIG_SCHEMA_VERSION
     engine: str = ENGINE_GOOGLE
     source_lang: str = "auto"
     target_lang: str = "zh-CN"
-    trigger_hotkey: str = "f1"
+    trigger_hotkey: str = "f8"
     translation_scope: str = TRANSLATION_SCOPE_FULLSCREEN
     trigger_mode: str = TRIGGER_MODE_REALTIME
-    fullscreen_hotkey: str = "f1"
+    fullscreen_hotkey: str = "f8"
     region_hotkey: str = "f2"
+    font_increase_hotkey: str = "ctrl+up"
+    font_decrease_hotkey: str = "ctrl+down"
     refresh_interval: float = 0.5
     fullscreen_realtime: bool = True
     region_realtime: bool = True
@@ -150,6 +158,7 @@ class AppConfig:
     merge_context: bool = True
     show_region_box: bool = True
     translation_theme: str = TRANSLATION_THEME_DEFAULT
+    translation_font_size: int = TRANSLATION_FONT_SIZE_DEFAULT
     target_window_title: str = ""
     google: GoogleConfig = field(default_factory=GoogleConfig)
     baidu: BaiduConfig = field(default_factory=BaiduConfig)
@@ -159,6 +168,7 @@ class AppConfig:
     ocr: OCRConfig = field(default_factory=OCRConfig)
 
     def normalize(self) -> None:
+        self.config_version = CONFIG_SCHEMA_VERSION
         if self.engine not in ENGINE_LABELS:
             self.engine = ENGINE_GOOGLE
         if self.source_lang not in LANGUAGES:
@@ -170,9 +180,19 @@ class AppConfig:
         if self.trigger_mode not in TRIGGER_MODE_LABELS:
             self.trigger_mode = TRIGGER_MODE_REALTIME
         self.refresh_interval = max(0.1, min(5.0, float(self.refresh_interval or 0.5)))
-        self.fullscreen_hotkey = normalize_hotkey(self.fullscreen_hotkey or "f1")
+        self.fullscreen_hotkey = normalize_hotkey(self.fullscreen_hotkey or "f8")
         self.region_hotkey = normalize_hotkey(self.region_hotkey or "f2")
-        self.trigger_hotkey = normalize_hotkey(self.trigger_hotkey or self.fullscreen_hotkey or "f1")
+        self.trigger_hotkey = normalize_hotkey(self.trigger_hotkey or self.fullscreen_hotkey or "f8")
+        self.font_increase_hotkey = normalize_hotkey(self.font_increase_hotkey or "ctrl+up")
+        self.font_decrease_hotkey = normalize_hotkey(self.font_decrease_hotkey or "ctrl+down")
+        try:
+            self.translation_font_size = int(self.translation_font_size)
+        except (TypeError, ValueError):
+            self.translation_font_size = TRANSLATION_FONT_SIZE_DEFAULT
+        self.translation_font_size = max(
+            TRANSLATION_FONT_SIZE_MIN,
+            min(TRANSLATION_FONT_SIZE_MAX, self.translation_font_size),
+        )
         self.target_window_title = str(self.target_window_title or "").strip()
         if self.ocr.resolution not in OCR_RESOLUTION_LABELS:
             self.ocr.resolution = OCR_RESOLUTION_ORIGINAL
@@ -221,13 +241,35 @@ def _dataclass_from_dict(cls: type, raw: Dict[str, Any]) -> Any:
     return cls(**kwargs)
 
 
+def _migrate_legacy_defaults(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Migrate saved configs created before default trigger hotkey changed.
+
+    Existing users may already have ``trigger_hotkey=f1`` persisted from the
+    old application default. Without this migration the GUI will continue to
+    display an obsolete default forever even though the code default is now F8.
+    """
+
+    if not isinstance(raw, dict):
+        return {}
+    migrated = dict(raw)
+    version = int(migrated.get("config_version") or 1)
+    if version < CONFIG_SCHEMA_VERSION:
+        trigger_hotkey = normalize_hotkey(str(migrated.get("trigger_hotkey") or ""))
+        fullscreen_hotkey = normalize_hotkey(str(migrated.get("fullscreen_hotkey") or ""))
+        if trigger_hotkey in {"", "f1", "alt+q"} and fullscreen_hotkey in {"", "f1", "alt+q"}:
+            migrated["trigger_hotkey"] = "f8"
+            migrated["fullscreen_hotkey"] = "f8"
+        migrated["config_version"] = CONFIG_SCHEMA_VERSION
+    return migrated
+
+
 def load_config(path: Path = CONFIG_FILE) -> AppConfig:
     if not path.exists():
         cfg = AppConfig()
         cfg.normalize()
         return cfg
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = _migrate_legacy_defaults(json.loads(path.read_text(encoding="utf-8")))
         cfg = _dataclass_from_dict(AppConfig, raw)
         cfg.normalize()
         return cfg

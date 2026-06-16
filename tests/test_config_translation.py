@@ -3,7 +3,16 @@ from pathlib import Path
 import numpy as np
 from PyQt5.QtCore import QCoreApplication, QRect
 
-from gameocr.config import AppConfig, load_config, reset_config, save_config
+from gameocr.config import (
+    CONFIG_SCHEMA_VERSION,
+    TRANSLATION_FONT_SIZE_DEFAULT,
+    TRANSLATION_FONT_SIZE_MAX,
+    TRANSLATION_FONT_SIZE_MIN,
+    AppConfig,
+    load_config,
+    reset_config,
+    save_config,
+)
 from gameocr.controller import (
     TranslationController,
     filter_translatable_items,
@@ -38,6 +47,9 @@ def test_config_roundtrip(tmp_path: Path) -> None:
     cfg.merge_context = True
     cfg.show_region_box = True
     cfg.translation_theme = "purple"
+    cfg.translation_font_size = 99
+    cfg.font_increase_hotkey = "Ctrl+Up"
+    cfg.font_decrease_hotkey = "Ctrl+Down"
     cfg.target_window_title = "Example Game"
     cfg.ocr.resolution = "720p"
     cfg.ollama.model = "qwen2.5:7b"
@@ -51,18 +63,91 @@ def test_config_roundtrip(tmp_path: Path) -> None:
     assert loaded.merge_context
     assert loaded.show_region_box
     assert loaded.translation_theme == "purple"
+    assert loaded.translation_font_size == TRANSLATION_FONT_SIZE_MAX
+    assert loaded.font_increase_hotkey == "ctrl+up"
+    assert loaded.font_decrease_hotkey == "ctrl+down"
     assert loaded.target_window_title == "Example Game"
     assert loaded.ocr.resolution == "720p"
     assert loaded.ollama.model == "qwen2.5:7b"
+    assert loaded.config_version == CONFIG_SCHEMA_VERSION
 
 
-def test_default_realtime_context_and_region_box_enabled() -> None:
+def test_legacy_default_f1_hotkey_migrates_to_f8(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+{
+  "engine": "google",
+  "trigger_hotkey": "f1",
+  "fullscreen_hotkey": "f1",
+  "target_lang": "zh-CN"
+}
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.config_version == CONFIG_SCHEMA_VERSION
+    assert loaded.trigger_hotkey == "f8"
+    assert loaded.fullscreen_hotkey == "f8"
+
+
+def test_legacy_alt_q_default_hotkey_migrates_to_f8(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+{
+  "config_version": 2,
+  "engine": "google",
+  "trigger_hotkey": "alt+q",
+  "fullscreen_hotkey": "alt+q",
+  "target_lang": "zh-CN"
+}
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.config_version == CONFIG_SCHEMA_VERSION
+    assert loaded.trigger_hotkey == "f8"
+    assert loaded.fullscreen_hotkey == "f8"
+
+
+def test_custom_legacy_hotkey_is_preserved(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+{
+  "engine": "google",
+  "trigger_hotkey": "ctrl+alt+1",
+  "fullscreen_hotkey": "ctrl+alt+1",
+  "target_lang": "zh-CN"
+}
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.config_version == CONFIG_SCHEMA_VERSION
+    assert loaded.trigger_hotkey == "ctrl+alt+1"
+    assert loaded.fullscreen_hotkey == "ctrl+alt+1"
+
+
+def test_default_realtime_context_region_box_and_font_settings() -> None:
     cfg = AppConfig()
 
+    assert cfg.trigger_hotkey == "f8"
+    assert cfg.fullscreen_hotkey == "f8"
     assert cfg.fullscreen_realtime
     assert cfg.region_realtime
     assert cfg.merge_context
     assert cfg.show_region_box
+    assert cfg.translation_font_size == TRANSLATION_FONT_SIZE_DEFAULT
+    assert cfg.font_increase_hotkey == "ctrl+up"
+    assert cfg.font_decrease_hotkey == "ctrl+down"
 
 
 def test_reset_config_preserves_service_settings(tmp_path: Path) -> None:
@@ -74,6 +159,9 @@ def test_reset_config_preserves_service_settings(tmp_path: Path) -> None:
     cfg.region_realtime = False
     cfg.merge_context = False
     cfg.show_region_box = False
+    cfg.translation_font_size = TRANSLATION_FONT_SIZE_MIN
+    cfg.font_increase_hotkey = "ctrl+shift+up"
+    cfg.font_decrease_hotkey = "ctrl+shift+down"
     cfg.google.proxy = "http://127.0.0.1:7890"
     cfg.baidu.app_id = "baidu-app-id"
     cfg.baidu.secret_key = "baidu-secret"
@@ -95,10 +183,15 @@ def test_reset_config_preserves_service_settings(tmp_path: Path) -> None:
     for item in (reset, loaded):
         assert item.engine == "google"
         assert item.target_lang == "zh-CN"
+        assert item.trigger_hotkey == "f8"
+        assert item.fullscreen_hotkey == "f8"
         assert item.fullscreen_realtime
         assert item.region_realtime
         assert item.merge_context
         assert item.show_region_box
+        assert item.translation_font_size == TRANSLATION_FONT_SIZE_DEFAULT
+        assert item.font_increase_hotkey == "ctrl+up"
+        assert item.font_decrease_hotkey == "ctrl+down"
         assert item.google.proxy == "http://127.0.0.1:7890"
         assert item.baidu.app_id == "baidu-app-id"
         assert item.baidu.secret_key == "baidu-secret"
@@ -349,7 +442,9 @@ def test_target_window_background_pauses_and_foreground_recovers(monkeypatch) ->
     assert controller.target_window_paused
     assert not controller.fullscreen_busy
     assert overlay.clear_count == 1
-    assert overlay.status_calls[-1] == (False, False)
+    # The pause triggers set_realtime_status(False, False) then set_latency_status(…, False).
+    assert overlay.status_calls[-2] == (False, False)
+    assert overlay.status_calls[-1] == ("latency", False)
     assert logs == ["目标窗口不在前台，已暂停 OCR 翻译并隐藏悬浮窗"]
 
     assert controller._pause_if_target_window_background("fullscreen")
@@ -433,6 +528,7 @@ def test_overlay_manager_reuses_windows(monkeypatch) -> None:
             self.x = x
             self.y = y
             self.theme = ""
+            self.font_size = 0
             self.preferred_width = 0
             self.shown = 0
             self.hidden = 0
@@ -442,6 +538,9 @@ def test_overlay_manager_reuses_windows(monkeypatch) -> None:
 
         def set_theme(self, theme: str) -> None:
             self.theme = theme
+
+        def set_font_size(self, font_size: int) -> None:
+            self.font_size = font_size
 
         def set_preferred_width(self, width: int) -> None:
             self.preferred_width = width
@@ -488,6 +587,10 @@ def test_overlay_manager_reuses_windows(monkeypatch) -> None:
     assert manager.active_count() == 2
     assert len(created) == 2
     assert [bubble.theme for bubble in created] == ["classic", "classic"]
+    assert [bubble.font_size for bubble in created] == [TRANSLATION_FONT_SIZE_DEFAULT, TRANSLATION_FONT_SIZE_DEFAULT]
+
+    manager.set_translation_font_size(18)
+    assert [bubble.font_size for bubble in created] == [18, 18]
 
     manager.set_translation_theme("amber")
     assert [bubble.theme for bubble in created] == ["amber", "amber"]
@@ -580,6 +683,8 @@ class FakeControllerOverlay:
         self.region_box_calls = []
         self.realtime_status_calls = []
         self.latency_status_calls = []
+        self.translation_theme = ""
+        self.translation_font_size = 0
         self.hidden = 0
         self.shown = 0
 
@@ -591,6 +696,12 @@ class FakeControllerOverlay:
 
     def set_region_box(self, rect, visible: bool) -> None:
         self.region_box_calls.append((rect, visible))
+
+    def set_translation_theme(self, theme: str) -> None:
+        self.translation_theme = theme
+
+    def set_translation_font_size(self, font_size: int) -> None:
+        self.translation_font_size = font_size
 
     def set_realtime_status(self, active: bool, visible: bool) -> None:
         self.realtime_status_calls.append((active, visible))

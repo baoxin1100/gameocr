@@ -11,7 +11,7 @@ from PIL import Image
 from PyQt5.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal, pyqtSlot
 
 from .config import AppConfig, OCR_RESOLUTION_ORIGINAL, OCR_TARGET_HEIGHTS, TRANSLATION_SCOPE_FULLSCREEN, TRANSLATION_SCOPE_REGION, TRIGGER_MODE_REALTIME
-from .ocr import OCRItem, OCRProcessor, OCRRunInfo
+from .ocr import OCRItem, OCRRunInfo, create_ocr
 from .overlay import OverlayManager
 from .screen import (
     RectTuple,
@@ -272,7 +272,7 @@ class OCRTranslateWorker(QRunnable):
                 f"{self._mode_label()} OCR 输入分辨率: {screenshot.image.shape[1]}x{screenshot.image.shape[0]}"
                 f" → {ocr_image.shape[1]}x{ocr_image.shape[0]}"
             )
-            ocr = OCRProcessor.shared(self.config.ocr)
+            ocr = create_ocr(self.config.ocr)
             ocr_info = ocr.recognize(ocr_image)
             if not ocr_info.error:
                 ocr_info = OCRRunInfo(
@@ -346,6 +346,8 @@ class TranslationController(QObject):
 
     def update_config(self, config: AppConfig) -> None:
         self.config = config
+        self.overlay.set_translation_theme(self.config.translation_theme)
+        self.overlay.set_translation_font_size(self.config.translation_font_size)
         interval_ms = int(self.config.refresh_interval * 1000)
         self.fullscreen_timer.setInterval(interval_ms)
         self.region_timer.setInterval(interval_ms)
@@ -353,6 +355,9 @@ class TranslationController(QObject):
         self._sync_region_box()
 
     def handle_trigger_hotkey(self) -> None:
+        if not self.target_window_accepts_hotkey():
+            return
+
         if self.fullscreen_timer.isActive() or self.region_timer.isActive() or self.overlay_mode or self.fullscreen_busy or self.region_busy:
             self.stop_all()
             return
@@ -486,7 +491,7 @@ class TranslationController(QObject):
         else:
             self.region_busy = True
 
-        if self._capture_uses_target_window():
+        if self._capture_uses_target_window() or self.overlay.capture_exclusion_supported():
             self._launch_worker_after_overlay_hidden(mode, region, generation)
         else:
             self.overlay.hide_all()
@@ -520,21 +525,32 @@ class TranslationController(QObject):
             return
         if self._pause_if_target_window_background(mode):
             return
-        if self.overlay_mode != mode or self._capture_uses_target_window():
+        if self.overlay_mode != mode or self._capture_uses_target_window() or self.overlay.capture_exclusion_supported():
             return
 
-        # In realtime mode, do not restore stale translations after screenshot.
-        # If the source text has disappeared, keeping old bubbles visible during
-        # OCR/network translation makes them look like they linger too long.
-        if self.fullscreen_timer.isActive() or self.region_timer.isActive():
-            self.overlay.clear()
-            self._update_realtime_status()
-            return
-
+        # Desktop capture must hide overlays briefly to avoid OCR reading its own
+        # translation bubbles when Windows capture exclusion is unavailable.
+        # Restore the previous overlays immediately after the screenshot is captured,
+        # then replace them only when the new OCR/translation result is ready.
         self.overlay.show_all()
 
     def _capture_uses_target_window(self) -> bool:
         return bool(self.config.target_window_title.strip())
+
+    def target_window_accepts_hotkey(self) -> bool:
+        target_window_title = self.config.target_window_title.strip()
+        if not target_window_title:
+            return True
+
+        try:
+            if is_target_window_foreground(target_window_title):
+                return True
+        except Exception as exc:  # noqa: BLE001
+            self.log.emit(f"目标窗口前台检测失败，快捷键已忽略: {exc}")
+            return False
+
+        self.log.emit("目标窗口不在前台，快捷键已忽略")
+        return False
 
     def _pause_if_target_window_background(self, mode: str) -> bool:
         target_window_title = self.config.target_window_title.strip()
@@ -567,6 +583,7 @@ class TranslationController(QObject):
             self.region_busy = False
         self.overlay.clear()
         self.overlay.set_realtime_status(False, False)
+        self.overlay.set_latency_status(0.0, 0.0, 0.0, False)
         if not self.target_window_paused:
             self.log.emit(message)
         self.target_window_paused = True

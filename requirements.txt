@@ -3,11 +3,13 @@ pynput>=1.7.6
 mss>=9.0.1
 pywin32>=306; sys_platform == "win32"
 Pillow>=10.0.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.0.0
 opencv-python>=4.8.0
 requests>=2.31.0
-openvino>=2024.0.0
-onnxruntime-openvino>=1.17.0
+# onnxruntime-openvino 1.24.x is not compatible with OpenVINO 2026.x DLLs.
+# Keep OpenVINO in the 2025 line so OpenVINOExecutionProvider can load.
+openvino>=2025.3.0,<2026.0.0
+onnxruntime-openvino>=1.24.1,<1.25.0
 onnxocr>=0.0.7
 cryptography>=42.0.0
 pyinstaller>=6.3.0

@@ -10,7 +10,7 @@ ASSETS_DIR = ROOT / "assets"
 PNG_PATH = ASSETS_DIR / "gameocr_icon.png"
 ICO_PATH = ASSETS_DIR / "gameocr.ico"
 
-ICON_TEXT = "实时汉化"
+ICON_LINES = ("实时", "汉化")
 
 
 def load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -44,6 +44,25 @@ def fit_font(
         font = load_font(size)
         bbox = draw.textbbox((0, 0), text, font=font)
         if bbox[2] - bbox[0] <= max_width and bbox[3] - bbox[1] <= max_height:
+            return font
+    return load_font(min_size)
+
+
+def fit_multiline_font(
+    draw: ImageDraw.ImageDraw,
+    lines: tuple[str, ...],
+    max_width: int,
+    max_height: int,
+    start_size: int = 320,
+    min_size: int = 120,
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    for size in range(start_size, min_size - 1, -4):
+        font = load_font(size)
+        metrics = [draw.textbbox((0, 0), line, font=font) for line in lines]
+        line_gap = int(size * 0.08)
+        width = max(bbox[2] - bbox[0] for bbox in metrics)
+        height = sum(bbox[3] - bbox[1] for bbox in metrics) + line_gap * (len(lines) - 1)
+        if width <= max_width and height <= max_height:
             return font
     return load_font(min_size)
 
@@ -140,24 +159,34 @@ def create_icon() -> Image.Image:
         width=3,
     )
 
-    font = fit_font(draw, ICON_TEXT, max_width=760, max_height=260, start_size=224)
-    bbox = draw.textbbox((0, 0), ICON_TEXT, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    text_x = (size - text_width) // 2 - bbox[0]
-    text_y = (size - text_height) // 2 - bbox[1] + 12
+    font = fit_multiline_font(draw, ICON_LINES, max_width=650, max_height=560, start_size=304)
+    line_bboxes = [draw.textbbox((0, 0), line, font=font) for line in ICON_LINES]
+    line_gap = int(getattr(font, "size", 220) * 0.08)
+    line_heights = [bbox[3] - bbox[1] for bbox in line_bboxes]
+    total_height = sum(line_heights) + line_gap * (len(ICON_LINES) - 1)
+    current_y = (size - total_height) // 2 - 8
 
-    # Subtle glow/shadow only; the icon content itself remains just the four
-    # white characters requested by the product design.
+    text_positions: list[tuple[str, int, int]] = []
+    for line, bbox, line_height in zip(ICON_LINES, line_bboxes, line_heights):
+        text_width = bbox[2] - bbox[0]
+        text_x = (size - text_width) // 2 - bbox[0]
+        text_y = current_y - bbox[1]
+        text_positions.append((line, text_x, text_y))
+        current_y += line_height + line_gap
+
+    # Subtle glow/shadow only; the icon content itself remains the requested
+    # four white characters, arranged as "实时" above "汉化".
     glow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow_layer)
-    glow_draw.text((text_x, text_y), ICON_TEXT, font=font, fill=(255, 255, 255, 150))
-    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(10))
+    for line, text_x, text_y in text_positions:
+        glow_draw.text((text_x, text_y), line, font=font, fill=(255, 255, 255, 160))
+    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(12))
     icon.alpha_composite(glow_layer)
 
     draw = ImageDraw.Draw(icon)
-    draw.text((text_x + 5, text_y + 7), ICON_TEXT, font=font, fill=(32, 10, 72, 116))
-    draw.text((text_x, text_y), ICON_TEXT, font=font, fill=(255, 255, 255, 255))
+    for line, text_x, text_y in text_positions:
+        draw.text((text_x + 5, text_y + 7), line, font=font, fill=(32, 10, 72, 122))
+        draw.text((text_x, text_y), line, font=font, fill=(255, 255, 255, 255))
 
     return icon
 

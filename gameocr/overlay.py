@@ -1,14 +1,64 @@
 from __future__ import annotations
 
+import ctypes
 import math
+import sys
 from typing import List, Sequence, Tuple
 
 from PyQt5.QtCore import QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
 from PyQt5.QtWidgets import QApplication, QLabel, QWidget
 
-from .config import TRANSLATION_THEME_DEFAULT, TRANSLATION_THEME_LABELS
+from .config import (
+    TRANSLATION_FONT_SIZE_DEFAULT,
+    TRANSLATION_FONT_SIZE_MAX,
+    TRANSLATION_FONT_SIZE_MIN,
+    TRANSLATION_THEME_DEFAULT,
+    TRANSLATION_THEME_LABELS,
+)
 from .ocr import OCRItem
+
+
+WDA_EXCLUDEFROMCAPTURE = 0x00000011
+_capture_exclusion_supported: bool | None = None
+
+
+def _set_excluded_from_capture(widget: QWidget) -> bool:
+    """Exclude a top-level PyQt window from Windows screen capture if supported.
+
+    Windows 10 2004+ and Windows 11 support WDA_EXCLUDEFROMCAPTURE via
+    SetWindowDisplayAffinity(). When it works, desktop screenshots/recording can
+    omit the overlay while the user still sees it, so realtime OCR no longer has
+    to blink translation windows off before every capture.
+    """
+
+    global _capture_exclusion_supported
+
+    if sys.platform != "win32":
+        _capture_exclusion_supported = False
+        return False
+
+    try:
+        hwnd = int(widget.winId())
+        if hwnd <= 0:
+            _capture_exclusion_supported = False
+            return False
+        result = ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+    except Exception:  # noqa: BLE001
+        _capture_exclusion_supported = False
+        return False
+
+    if result:
+        _capture_exclusion_supported = True
+        return True
+
+    if _capture_exclusion_supported is None:
+        _capture_exclusion_supported = False
+    return False
+
+
+def is_capture_exclusion_supported() -> bool:
+    return _capture_exclusion_supported is True
 
 
 TRANSLATION_THEME_STYLES = {
@@ -61,16 +111,23 @@ class TranslationBubble(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        _set_excluded_from_capture(self)
 
         self.label = QLabel(text, self)
         self.label.setWordWrap(True)
         self.label.setMargin(8)
         self.label.setMinimumWidth(0)
         self.label.setMaximumWidth(max_width)
-        self.label.setFont(QFont("Microsoft YaHei UI", 11))
+        self.label.setFont(QFont("Microsoft YaHei UI", TRANSLATION_FONT_SIZE_DEFAULT))
+        self.set_font_size(TRANSLATION_FONT_SIZE_DEFAULT)
         self.set_theme(TRANSLATION_THEME_DEFAULT)
         self._resize_to_content()
         self.move_to_fit(x, y)
+
+    def set_font_size(self, font_size: int) -> None:
+        font_size = max(TRANSLATION_FONT_SIZE_MIN, min(TRANSLATION_FONT_SIZE_MAX, int(font_size)))
+        self.label.setFont(QFont("Microsoft YaHei UI", font_size))
+        self._resize_to_content()
 
     def set_theme(self, theme: str) -> None:
         style = TRANSLATION_THEME_STYLES.get(theme, TRANSLATION_THEME_STYLES[TRANSLATION_THEME_DEFAULT])
@@ -135,6 +192,7 @@ class RegionBoxOverlay(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        _set_excluded_from_capture(self)
         self.update_rect(rect)
 
     def update_rect(self, rect: Tuple[int, int, int, int]) -> None:
@@ -168,6 +226,7 @@ class RealtimeStatusBubble(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        _set_excluded_from_capture(self)
 
         self._resize_to_text()
         self.move_to_top_right()
@@ -226,6 +285,7 @@ class OverlayManager:
         self._region_box_rect: Tuple[int, int, int, int] | None = None
         self._region_box_enabled = False
         self._translation_theme = TRANSLATION_THEME_DEFAULT
+        self._translation_font_size = TRANSLATION_FONT_SIZE_DEFAULT
 
     def clear(self) -> None:
         for window in self._windows:
@@ -247,6 +307,9 @@ class OverlayManager:
         self._sync_status_window()
         self.show_region_box()
 
+    def capture_exclusion_supported(self) -> bool:
+        return is_capture_exclusion_supported()
+
     def set_translation_theme(self, theme: str) -> None:
         if theme not in TRANSLATION_THEME_LABELS:
             theme = TRANSLATION_THEME_DEFAULT
@@ -254,6 +317,13 @@ class OverlayManager:
         for window in self._windows:
             if hasattr(window, "set_theme"):
                 window.set_theme(theme)
+
+    def set_translation_font_size(self, font_size: int) -> None:
+        font_size = max(TRANSLATION_FONT_SIZE_MIN, min(TRANSLATION_FONT_SIZE_MAX, int(font_size)))
+        self._translation_font_size = font_size
+        for window in self._windows:
+            if hasattr(window, "set_font_size"):
+                window.set_font_size(font_size)
 
     def set_realtime_status(self, active: bool, enabled: bool = True) -> None:
         self._status_active = active
@@ -329,6 +399,8 @@ class OverlayManager:
                 bubble = self._windows[visible_count]
                 if hasattr(bubble, "set_theme"):
                     bubble.set_theme(self._translation_theme)
+                if hasattr(bubble, "set_font_size"):
+                    bubble.set_font_size(self._translation_font_size)
                 if hasattr(bubble, "set_preferred_width"):
                     bubble.set_preferred_width(source_width)
                 bubble.update_text(translation)
@@ -336,6 +408,8 @@ class OverlayManager:
                 bubble = TranslationBubble(translation, initial_x, initial_y)
                 if hasattr(bubble, "set_theme"):
                     bubble.set_theme(self._translation_theme)
+                if hasattr(bubble, "set_font_size"):
+                    bubble.set_font_size(self._translation_font_size)
                 if hasattr(bubble, "set_preferred_width"):
                     bubble.set_preferred_width(source_width)
                 self._windows.append(bubble)

@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QStackedWidget,
     QStyle,
     QSystemTrayIcon,
@@ -32,6 +33,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from . import __app_name__, __version__
 from .config import (
     ENGINE_BAIDU,
     ENGINE_GOOGLE,
@@ -42,6 +44,8 @@ from .config import (
     LANGUAGES,
     OCR_RESOLUTION_LABELS,
     TENCENT_REGIONS,
+    TRANSLATION_FONT_SIZE_MAX,
+    TRANSLATION_FONT_SIZE_MIN,
     TRANSLATION_SCOPE_FULLSCREEN,
     TRANSLATION_SCOPE_LABELS,
     TRANSLATION_SCOPE_REGION,
@@ -56,7 +60,7 @@ from .config import (
 )
 from .controller import TranslationController
 from .hotkeys import HotkeyManager
-from .ocr import OCRProcessor
+from .ocr import create_ocr
 from .overlay import OverlayManager
 from .screen import RegionSelector, list_capture_windows, window_capture_dependency_error
 
@@ -73,7 +77,7 @@ class HotkeyCaptureEdit(QLineEdit):
         super().__init__()
         self._capturing = False
         self._previous_text = ""
-        self.setPlaceholderText("例如 f1 或 ctrl+alt+1")
+        self.setPlaceholderText("例如 f8 或 ctrl+alt+1")
 
     def start_capture(self) -> None:
         self._capturing = True
@@ -178,7 +182,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.config = load_config()
-        self.setWindowTitle("游戏屏幕 OCR 实时翻译工具")
+        self.setWindowTitle(f"{__app_name__} v{__version__}")
         self.app_icon = QIcon(str(APP_ICON_PATH))
         if not self.app_icon.isNull():
             self.setWindowIcon(self.app_icon)
@@ -187,6 +191,7 @@ class MainWindow(QMainWindow):
 
         self.overlay = OverlayManager()
         self.overlay.set_translation_theme(self.config.translation_theme)
+        self.overlay.set_translation_font_size(self.config.translation_font_size)
         self.controller = TranslationController(self.config, self.overlay)
         self.controller.log.connect(self.append_log)
         self.controller.request_region_selection.connect(self.begin_region_selection)
@@ -213,7 +218,7 @@ class MainWindow(QMainWindow):
 
         self._preload_ocr()
         self.apply_and_save(show_message=False)
-        self.append_log("程序已启动。默认 F1 触发翻译；在 GUI 中选择整页/选区与单次/实时模式。")
+        self.append_log("程序已启动。默认 F8 触发翻译；在 GUI 中选择整页/选区与单次/实时模式。")
 
     def _build_ui(self) -> None:
         central = QWidget(self)
@@ -249,10 +254,16 @@ class MainWindow(QMainWindow):
         for theme, label in TRANSLATION_THEME_LABELS.items():
             self.translation_theme_combo.addItem(label, theme)
 
+        self.translation_font_size_spin = QSpinBox()
+        self.translation_font_size_spin.setRange(TRANSLATION_FONT_SIZE_MIN, TRANSLATION_FONT_SIZE_MAX)
+        self.translation_font_size_spin.setSingleStep(1)
+        self.translation_font_size_spin.setSuffix(" pt")
+
         top_form.addRow("翻译引擎", self.engine_combo)
         top_form.addRow("源语言", self.source_lang_combo)
         top_form.addRow("目标语言", self.target_lang_combo)
         top_form.addRow("译文框配色", self.translation_theme_combo)
+        top_form.addRow("译文框字号", self.translation_font_size_spin)
         layout.addLayout(top_form)
 
         self.engine_stack = QStackedWidget()
@@ -349,7 +360,7 @@ class MainWindow(QMainWindow):
 
         self.target_window_combo = QComboBox()
         self.target_window_combo.setMinimumWidth(520)
-        self.target_window_combo.addItem("全屏桌面截图（默认，截图前会临时隐藏悬浮译文）", "")
+        self.target_window_combo.addItem("全屏桌面截图（默认）", "")
         self.refresh_windows_button = QPushButton("刷新窗口列表")
         self.refresh_windows_button.clicked.connect(self.refresh_window_list)
 
@@ -380,7 +391,7 @@ class MainWindow(QMainWindow):
         group = QGroupBox("快捷键配置")
         form = QFormLayout(group)
         self.trigger_hotkey_edit = HotkeyCaptureEdit()
-        self.trigger_hotkey_edit.setPlaceholderText("例如 f1 或 ctrl+alt+1")
+        self.trigger_hotkey_edit.setPlaceholderText("例如 f8 或 ctrl+alt+1")
         self.trigger_hotkey_edit.hotkey_captured.connect(lambda _: self.apply_and_save(show_message=False))
         self.trigger_hotkey_edit.capture_cancelled.connect(lambda: self.apply_and_save(show_message=False))
 
@@ -390,7 +401,31 @@ class MainWindow(QMainWindow):
         trigger_row.addWidget(self.trigger_hotkey_edit)
         trigger_row.addWidget(trigger_capture_button)
 
+        self.font_increase_hotkey_edit = HotkeyCaptureEdit()
+        self.font_increase_hotkey_edit.setPlaceholderText("例如 ctrl+up")
+        self.font_increase_hotkey_edit.hotkey_captured.connect(lambda _: self.apply_and_save(show_message=False))
+        self.font_increase_hotkey_edit.capture_cancelled.connect(lambda: self.apply_and_save(show_message=False))
+
+        font_increase_row = QHBoxLayout()
+        font_increase_capture_button = QPushButton("按键录入")
+        font_increase_capture_button.clicked.connect(lambda: self.begin_hotkey_capture(self.font_increase_hotkey_edit))
+        font_increase_row.addWidget(self.font_increase_hotkey_edit)
+        font_increase_row.addWidget(font_increase_capture_button)
+
+        self.font_decrease_hotkey_edit = HotkeyCaptureEdit()
+        self.font_decrease_hotkey_edit.setPlaceholderText("例如 ctrl+down")
+        self.font_decrease_hotkey_edit.hotkey_captured.connect(lambda _: self.apply_and_save(show_message=False))
+        self.font_decrease_hotkey_edit.capture_cancelled.connect(lambda: self.apply_and_save(show_message=False))
+
+        font_decrease_row = QHBoxLayout()
+        font_decrease_capture_button = QPushButton("按键录入")
+        font_decrease_capture_button.clicked.connect(lambda: self.begin_hotkey_capture(self.font_decrease_hotkey_edit))
+        font_decrease_row.addWidget(self.font_decrease_hotkey_edit)
+        font_decrease_row.addWidget(font_decrease_capture_button)
+
         form.addRow("翻译触发热键", trigger_row)
+        form.addRow("译文放大热键", font_increase_row)
+        form.addRow("译文缩小热键", font_decrease_row)
         return group
 
     def _build_realtime_group(self) -> QGroupBox:
@@ -453,7 +488,7 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("停止并清空悬浮窗")
         self.exit_button = QPushButton("退出程序")
 
-        self.save_button.clicked.connect(lambda: self.apply_and_save(show_message=True))
+        self.save_button.clicked.connect(lambda: self.apply_and_save(show_message=False))
         self.reset_button.clicked.connect(self.reset_all)
         self.tray_button.clicked.connect(self.minimize_to_tray)
         self.stop_button.clicked.connect(self.controller.stop_all)
@@ -487,6 +522,7 @@ class MainWindow(QMainWindow):
         menu.addAction(show_action)
         menu.addSeparator()
         menu.addAction(quit_action)
+        self.tray.setToolTip(f"{__app_name__} v{__version__}")
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self.on_tray_activated)
         self.tray.show()
@@ -497,6 +533,7 @@ class MainWindow(QMainWindow):
         self._set_combo_by_data(self.source_lang_combo, self.config.source_lang)
         self._set_combo_by_data(self.target_lang_combo, self.config.target_lang)
         self._set_combo_by_data(self.translation_theme_combo, self.config.translation_theme)
+        self.translation_font_size_spin.setValue(self.config.translation_font_size)
 
         self.baidu_app_id_edit.setText(self.config.baidu.app_id)
         self.baidu_secret_edit.setText(self.config.baidu.secret_key)
@@ -520,6 +557,8 @@ class MainWindow(QMainWindow):
         self.show_region_box_check.setChecked(self.config.show_region_box)
 
         self.trigger_hotkey_edit.setText(self.config.trigger_hotkey)
+        self.font_increase_hotkey_edit.setText(self.config.font_increase_hotkey)
+        self.font_decrease_hotkey_edit.setText(self.config.font_decrease_hotkey)
         self.translation_scope_fullscreen_radio.setChecked(self.config.translation_scope == TRANSLATION_SCOPE_FULLSCREEN)
         self.translation_scope_region_radio.setChecked(self.config.translation_scope == TRANSLATION_SCOPE_REGION)
         self.trigger_mode_realtime_radio.setChecked(self.config.trigger_mode == TRIGGER_MODE_REALTIME)
@@ -537,6 +576,7 @@ class MainWindow(QMainWindow):
         cfg.source_lang = self.source_lang_combo.currentData()
         cfg.target_lang = self.target_lang_combo.currentData()
         cfg.translation_theme = self.translation_theme_combo.currentData() or "classic"
+        cfg.translation_font_size = self.translation_font_size_spin.value()
         cfg.google.proxy = ""
 
         cfg.baidu.app_id = self.baidu_app_id_edit.text().strip()
@@ -561,6 +601,8 @@ class MainWindow(QMainWindow):
         cfg.show_region_box = self.show_region_box_check.isChecked()
 
         cfg.trigger_hotkey = self.trigger_hotkey_edit.text().strip()
+        cfg.font_increase_hotkey = self.font_increase_hotkey_edit.text().strip()
+        cfg.font_decrease_hotkey = self.font_decrease_hotkey_edit.text().strip()
         cfg.translation_scope = (
             TRANSLATION_SCOPE_REGION
             if self.translation_scope_region_radio.isChecked()
@@ -577,19 +619,40 @@ class MainWindow(QMainWindow):
         return cfg
 
     def apply_and_save(self, show_message: bool = False, restart_realtime: bool = True) -> None:
-        previous_trigger_hotkey = self.config.trigger_hotkey
+        previous_hotkeys = {
+            "trigger_hotkey": self.config.trigger_hotkey,
+            "font_increase_hotkey": self.config.font_increase_hotkey,
+            "font_decrease_hotkey": self.config.font_decrease_hotkey,
+        }
         self.config = self.collect_config_from_ui()
         self.overlay.set_translation_theme(self.config.translation_theme)
+        self.overlay.set_translation_font_size(self.config.translation_font_size)
         self.controller.update_config(self.config)
-        ok = self.hotkeys.update_bindings(self.config.trigger_hotkey)
+        ok = self.hotkeys.update_bindings(
+            self.config.trigger_hotkey,
+            "",
+            self.config.font_increase_hotkey,
+            self.config.font_decrease_hotkey,
+        )
         if not ok:
-            self.config.trigger_hotkey = previous_trigger_hotkey
-            self.trigger_hotkey_edit.setText(previous_trigger_hotkey)
-            self.hotkeys.update_bindings(previous_trigger_hotkey)
+            self.config.trigger_hotkey = previous_hotkeys["trigger_hotkey"]
+            self.config.font_increase_hotkey = previous_hotkeys["font_increase_hotkey"]
+            self.config.font_decrease_hotkey = previous_hotkeys["font_decrease_hotkey"]
+            self.trigger_hotkey_edit.setText(self.config.trigger_hotkey)
+            self.font_increase_hotkey_edit.setText(self.config.font_increase_hotkey)
+            self.font_decrease_hotkey_edit.setText(self.config.font_decrease_hotkey)
+            self.hotkeys.update_bindings(
+                self.config.trigger_hotkey,
+                "",
+                self.config.font_increase_hotkey,
+                self.config.font_decrease_hotkey,
+            )
             self.controller.update_config(self.config)
             return
         save_config(self.config)
         self.trigger_hotkey_edit.setText(self.config.trigger_hotkey)
+        self.font_increase_hotkey_edit.setText(self.config.font_increase_hotkey)
+        self.font_decrease_hotkey_edit.setText(self.config.font_decrease_hotkey)
         self.append_log("配置已保存，热键已即时生效")
         if restart_realtime:
             self.controller.restart_active_realtime("配置已变更")
@@ -607,7 +670,7 @@ class MainWindow(QMainWindow):
         selected_title = selected_title or (self.target_window_combo.currentData() if hasattr(self, "target_window_combo") else "") or ""
         self.target_window_combo.blockSignals(True)
         self.target_window_combo.clear()
-        self.target_window_combo.addItem("全屏桌面截图（默认，截图前会临时隐藏悬浮译文）", "")
+        self.target_window_combo.addItem("全屏桌面截图（默认）", "")
 
         dependency_error = window_capture_dependency_error()
         windows = [] if dependency_error else list_capture_windows()
@@ -683,6 +746,7 @@ class MainWindow(QMainWindow):
             edit.editingFinished.connect(self._schedule_realtime_auto_apply)
 
         self.openai_timeout_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
+        self.translation_font_size_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
         self.interval_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
         self.ollama_context_edit.textChanged.connect(self._schedule_realtime_auto_apply)
 
@@ -699,8 +763,32 @@ class MainWindow(QMainWindow):
         self.apply_and_save(show_message=False, restart_realtime=True)
 
     def on_hotkey(self, mode: str) -> None:
+        if not self.controller.target_window_accepts_hotkey():
+            return
+
+        if mode == "font_increase":
+            self.adjust_translation_font_size(1)
+            return
+        if mode == "font_decrease":
+            self.adjust_translation_font_size(-1)
+            return
+
         self.apply_and_save(show_message=False, restart_realtime=False)
         self.controller.handle_trigger_hotkey()
+
+    def adjust_translation_font_size(self, delta: int) -> None:
+        current = self.translation_font_size_spin.value()
+        new_value = max(TRANSLATION_FONT_SIZE_MIN, min(TRANSLATION_FONT_SIZE_MAX, current + delta))
+        if new_value == current:
+            self.append_log(f"译文框字号已到边界: {current} pt")
+            return
+
+        self.translation_font_size_spin.setValue(new_value)
+        self.config.translation_font_size = new_value
+        self.overlay.set_translation_font_size(new_value)
+        self.controller.update_config(self.config)
+        save_config(self.config)
+        self.append_log(f"译文框字号已调整为 {new_value} pt")
 
     def on_hotkey_error(self, message: str) -> None:
         self.append_log(message)
@@ -722,7 +810,7 @@ class MainWindow(QMainWindow):
 
     def minimize_to_tray(self) -> None:
         self.hide()
-        self.tray.showMessage("GameOCR Translator", "程序已最小化到托盘，热键仍在后台生效。", QSystemTrayIcon.Information, 1800)
+        self.tray.showMessage(__app_name__, "程序已最小化到托盘，热键仍在后台生效。", QSystemTrayIcon.Information, 1800)
 
     def show_from_tray(self) -> None:
         self.showNormal()
@@ -745,7 +833,7 @@ class MainWindow(QMainWindow):
 
     def _preload_ocr(self) -> None:
         self.append_log("正在加载 OCR 模型（仅启动时加载一次）...")
-        ocr = OCRProcessor.shared(self.config.ocr)
+        ocr = create_ocr(self.config.ocr)
         if ocr.load_error:
             self.append_log(ocr.load_error)
         else:
