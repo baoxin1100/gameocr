@@ -61,6 +61,10 @@ def is_capture_exclusion_supported() -> bool:
     return _capture_exclusion_supported is True
 
 
+TRANSLATION_WIDTH_EXTRA_CHARS = 4
+TRANSLATION_WIDTH_MIN_EXTRA_PX = 32
+TRANSLATION_WIDTH_MAX_EXTRA_PX = 96
+
 TRANSLATION_THEME_STYLES = {
     "classic": {
         "text": "#ffffff",
@@ -99,7 +103,7 @@ class TranslationBubble(QWidget):
     def __init__(self, text: str, x: int, y: int, max_width: int = 720) -> None:
         super().__init__(None)
         self._max_width = max_width
-        self._preferred_width = 0
+        self._preferred_source_width = 0
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
@@ -146,7 +150,7 @@ class TranslationBubble(QWidget):
         self.label.setPalette(palette)
 
     def set_preferred_width(self, width: int) -> None:
-        self._preferred_width = max(1, min(int(width), self._max_width))
+        self._preferred_source_width = max(1, int(width))
         self._resize_to_content()
 
     def update_text(self, text: str) -> None:
@@ -154,7 +158,7 @@ class TranslationBubble(QWidget):
         self._resize_to_content()
 
     def _resize_to_content(self) -> None:
-        width_limit = self._preferred_width or self._max_width
+        width_limit = self._content_width_limit()
         natural_width = min(self._natural_text_width(), width_limit)
         target_width = max(1, natural_width)
 
@@ -163,6 +167,14 @@ class TranslationBubble(QWidget):
         self.label.setFixedWidth(target_width)
         self.label.adjustSize()
         self.resize(target_width, self.label.sizeHint().height())
+
+    def _content_width_limit(self) -> int:
+        if not self._preferred_source_width:
+            return self._max_width
+
+        metrics = QFontMetrics(self.label.font())
+        char_width = max(metrics.averageCharWidth(), metrics.horizontalAdvance("测"))
+        return _expanded_translation_width_limit(self._preferred_source_width, self._max_width, char_width)
 
     def _natural_text_width(self) -> int:
         metrics = QFontMetrics(self.label.font())
@@ -435,6 +447,15 @@ class OverlayManager:
 
     def active_count(self) -> int:
         return len(self._windows)
+
+
+def _expanded_translation_width_limit(source_width: int, max_width: int, char_width: int) -> int:
+    source_width = max(1, int(source_width))
+    max_width = max(1, int(max_width))
+    char_width = max(1, int(math.ceil(char_width)))
+    extra_width = char_width * TRANSLATION_WIDTH_EXTRA_CHARS
+    extra_width = max(TRANSLATION_WIDTH_MIN_EXTRA_PX, min(extra_width, TRANSLATION_WIDTH_MAX_EXTRA_PX))
+    return min(max_width, source_width + extra_width)
 
 
 def _place_without_overlap(

@@ -24,7 +24,7 @@ from gameocr.controller import (
 )
 from gameocr.hotkeys import Win32HotkeyListener, parse_win32_hotkey, to_pynput_hotkey
 from gameocr.ocr import OCRItem
-from gameocr.overlay import OverlayManager, _place_without_overlap
+from gameocr.overlay import OverlayManager, _expanded_translation_width_limit, _place_without_overlap
 from gameocr.screen import _mss_to_rgb_array
 from gameocr.translation import (
     BaseTranslator,
@@ -736,6 +736,12 @@ class FakeControllerOverlay:
 
     def active_count(self) -> int:
         return 0
+
+
+def test_expanded_translation_width_limit_allows_a_few_extra_characters() -> None:
+    assert _expanded_translation_width_limit(40, 720, 12) == 88
+    assert _expanded_translation_width_limit(40, 720, 4) == 72
+    assert _expanded_translation_width_limit(700, 720, 12) == 720
 
 
 def test_overlay_manager_region_box_toggle(monkeypatch) -> None:
