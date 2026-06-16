@@ -22,6 +22,7 @@ from gameocr.controller import (
     prepare_translation_items,
     should_translate_text,
 )
+from gameocr.hotkeys import Win32HotkeyListener, parse_win32_hotkey, to_pynput_hotkey
 from gameocr.ocr import OCRItem
 from gameocr.overlay import OverlayManager, _place_without_overlap
 from gameocr.screen import _mss_to_rgb_array
@@ -148,6 +149,24 @@ def test_default_realtime_context_region_box_and_font_settings() -> None:
     assert cfg.translation_font_size == TRANSLATION_FONT_SIZE_DEFAULT
     assert cfg.font_increase_hotkey == "ctrl+up"
     assert cfg.font_decrease_hotkey == "ctrl+down"
+
+
+def test_hotkey_helpers_support_function_and_modifier_keys() -> None:
+    modifiers, vk_code = parse_win32_hotkey("Ctrl+Shift+F8")
+    assert modifiers == (Win32HotkeyListener.MOD_CONTROL | Win32HotkeyListener.MOD_SHIFT)
+    assert vk_code == 0x77
+    assert parse_win32_hotkey("F2") == (0, 0x71)
+    assert parse_win32_hotkey("Ctrl+Up") == (Win32HotkeyListener.MOD_CONTROL, 0x26)
+    assert to_pynput_hotkey("Ctrl+Shift+F8") == "<ctrl>+<shift>+<f8>"
+
+
+def test_win32_hotkey_parser_rejects_missing_or_ambiguous_main_key() -> None:
+    import pytest
+
+    with pytest.raises(ValueError):
+        parse_win32_hotkey("Ctrl+Shift")
+    with pytest.raises(ValueError):
+        parse_win32_hotkey("Ctrl+A+B")
 
 
 def test_reset_config_preserves_service_settings(tmp_path: Path) -> None:
