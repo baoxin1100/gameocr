@@ -343,9 +343,11 @@ class TranslationController(QObject):
         self.overlay_mode: Optional[str] = None
         self.target_window_paused = False
         self._generation = 0
+        self._sync_overlay_capture_exclusion()
 
     def update_config(self, config: AppConfig) -> None:
         self.config = config
+        self._sync_overlay_capture_exclusion()
         self.overlay.set_translation_theme(self.config.translation_theme)
         self.overlay.set_translation_font_size(self.config.translation_font_size)
         interval_ms = int(self.config.refresh_interval * 1000)
@@ -536,6 +538,11 @@ class TranslationController(QObject):
 
     def _capture_uses_target_window(self) -> bool:
         return bool(self.config.target_window_title.strip())
+
+    def _sync_overlay_capture_exclusion(self) -> None:
+        set_capture_exclusion_enabled = getattr(self.overlay, "set_capture_exclusion_enabled", None)
+        if callable(set_capture_exclusion_enabled):
+            set_capture_exclusion_enabled(not self._capture_uses_target_window())
 
     def target_window_accepts_hotkey(self) -> bool:
         target_window_title = self.config.target_window_title.strip()

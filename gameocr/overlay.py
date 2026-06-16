@@ -19,17 +19,18 @@ from .config import (
 from .ocr import OCRItem
 
 
+WDA_NONE = 0x00000000
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
 _capture_exclusion_supported: bool | None = None
 
 
-def _set_excluded_from_capture(widget: QWidget) -> bool:
-    """Exclude a top-level PyQt window from Windows screen capture if supported.
+def set_capture_exclusion(widget: QWidget, excluded: bool) -> bool:
+    """Toggle Windows screen-capture exclusion for a top-level PyQt window.
 
-    Windows 10 2004+ and Windows 11 support WDA_EXCLUDEFROMCAPTURE via
-    SetWindowDisplayAffinity(). When it works, desktop screenshots/recording can
-    omit the overlay while the user still sees it, so realtime OCR no longer has
-    to blink translation windows off before every capture.
+    Desktop fullscreen capture can exclude overlays so OCR will not read its own
+    translation bubbles. When a specific game window is selected, screenshots are
+    taken with PrintWindow in the background and the overlays should remain
+    capturable for demo recording tools.
     """
 
     global _capture_exclusion_supported
@@ -43,16 +44,18 @@ def _set_excluded_from_capture(widget: QWidget) -> bool:
         if hwnd <= 0:
             _capture_exclusion_supported = False
             return False
-        result = ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+        affinity = WDA_EXCLUDEFROMCAPTURE if excluded else WDA_NONE
+        result = ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, affinity)
     except Exception:  # noqa: BLE001
         _capture_exclusion_supported = False
         return False
 
     if result:
-        _capture_exclusion_supported = True
+        if excluded:
+            _capture_exclusion_supported = True
         return True
 
-    if _capture_exclusion_supported is None:
+    if excluded and _capture_exclusion_supported is None:
         _capture_exclusion_supported = False
     return False
 
@@ -115,7 +118,7 @@ class TranslationBubble(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        _set_excluded_from_capture(self)
+        set_capture_exclusion(self, True)
 
         self.label = QLabel(text, self)
         self.label.setWordWrap(True)
@@ -204,7 +207,7 @@ class RegionBoxOverlay(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        _set_excluded_from_capture(self)
+        set_capture_exclusion(self, True)
         self.update_rect(rect)
 
     def update_rect(self, rect: Tuple[int, int, int, int]) -> None:
@@ -238,7 +241,7 @@ class RealtimeStatusBubble(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        _set_excluded_from_capture(self)
+        set_capture_exclusion(self, True)
 
         self._resize_to_text()
         self.move_to_top_right()
@@ -298,6 +301,16 @@ class OverlayManager:
         self._region_box_enabled = False
         self._translation_theme = TRANSLATION_THEME_DEFAULT
         self._translation_font_size = TRANSLATION_FONT_SIZE_DEFAULT
+        self._capture_exclusion_enabled = True
+
+    def set_capture_exclusion_enabled(self, enabled: bool) -> None:
+        self._capture_exclusion_enabled = bool(enabled)
+        for window in self._windows:
+            set_capture_exclusion(window, self._capture_exclusion_enabled)
+        if self._status_window is not None:
+            set_capture_exclusion(self._status_window, self._capture_exclusion_enabled)
+        if self._region_box is not None:
+            set_capture_exclusion(self._region_box, self._capture_exclusion_enabled)
 
     def clear(self) -> None:
         for window in self._windows:
@@ -362,6 +375,7 @@ class OverlayManager:
 
         if self._region_box is None:
             self._region_box = RegionBoxOverlay(self._region_box_rect)
+            set_capture_exclusion(self._region_box, self._capture_exclusion_enabled)
         else:
             self._region_box.update_rect(self._region_box_rect)
         self._region_box.show()
@@ -390,6 +404,7 @@ class OverlayManager:
         text = "\n".join(lines)
         if self._status_window is None:
             self._status_window = RealtimeStatusBubble(text)
+            set_capture_exclusion(self._status_window, self._capture_exclusion_enabled)
         else:
             self._status_window.update_text(text)
         self._status_window.move_to_top_right()
@@ -418,6 +433,7 @@ class OverlayManager:
                 bubble.update_text(translation)
             else:
                 bubble = TranslationBubble(translation, initial_x, initial_y)
+                set_capture_exclusion(bubble, self._capture_exclusion_enabled)
                 if hasattr(bubble, "set_theme"):
                     bubble.set_theme(self._translation_theme)
                 if hasattr(bubble, "set_font_size"):
