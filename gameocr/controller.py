@@ -19,6 +19,7 @@ from .screen import (
     capture_region,
     capture_window_by_title,
     capture_window_region_by_title,
+    get_window_rect_by_title,
     is_target_window_foreground,
 )
 from .translation import TranslationOutput, create_translator
@@ -344,6 +345,7 @@ class TranslationController(QObject):
         self.target_window_paused = False
         self._generation = 0
         self._sync_overlay_capture_exclusion()
+        self._sync_status_anchor_rect()
 
     def update_config(self, config: AppConfig) -> None:
         self.config = config
@@ -544,6 +546,21 @@ class TranslationController(QObject):
         if callable(set_capture_exclusion_enabled):
             set_capture_exclusion_enabled(not self._capture_uses_target_window())
 
+    def _sync_status_anchor_rect(self) -> None:
+        set_status_anchor_rect = getattr(self.overlay, "set_status_anchor_rect", None)
+        if not callable(set_status_anchor_rect):
+            return
+
+        target_window_title = self.config.target_window_title.strip()
+        if not target_window_title:
+            set_status_anchor_rect(None)
+            return
+
+        try:
+            set_status_anchor_rect(get_window_rect_by_title(target_window_title))
+        except Exception:
+            set_status_anchor_rect(None)
+
     def target_window_accepts_hotkey(self) -> bool:
         target_window_title = self.config.target_window_title.strip()
         if not target_window_title:
@@ -578,6 +595,7 @@ class TranslationController(QObject):
                 self.target_window_paused = False
                 self.log.emit("目标窗口已回到前台，自动恢复 OCR 翻译")
                 self._update_realtime_status()
+                self._sync_region_box()
             return False
 
         self._pause_target_window(mode, "目标窗口不在前台，已暂停 OCR 翻译并隐藏悬浮窗")
@@ -589,6 +607,7 @@ class TranslationController(QObject):
         else:
             self.region_busy = False
         self.overlay.clear()
+        self.overlay.clear_region_box()
         self.overlay.set_realtime_status(False, False)
         self.overlay.set_latency_status(0.0, 0.0, 0.0, False)
         if not self.target_window_paused:
@@ -652,6 +671,7 @@ class TranslationController(QObject):
         return None
 
     def _update_realtime_status(self) -> None:
+        self._sync_status_anchor_rect()
         active = (self.fullscreen_timer.isActive() or self.region_timer.isActive()) and not self.target_window_paused
         self.overlay.set_realtime_status(active, self.config.show_realtime_status)
         if not active or not self.config.show_latency_status:
@@ -675,6 +695,7 @@ class TranslationController(QObject):
             return
 
         self.overlay.show_all()
+        self._sync_status_anchor_rect()
         self.overlay.set_latency_status(
             ocr_info.elapsed_ms,
             output.elapsed_ms,

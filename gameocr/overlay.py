@@ -259,14 +259,23 @@ class RealtimeStatusBubble(QWidget):
         height = metrics.height() * len(lines) + self.padding_y * 2 + 4
         self.resize(width, height)
 
-    def move_to_top_right(self) -> None:
-        screen = QApplication.primaryScreen()
-        if screen is None:
-            self.move(20, 20)
-            return
-        rect = screen.availableGeometry()
+    def move_to_top_right(self, anchor_rect: Tuple[int, int, int, int] | QRect | None = None) -> None:
         margin = 12
-        self.move(rect.left() + rect.width() - self.width() - margin, rect.top() + margin)
+        if anchor_rect is None:
+            screen = QApplication.primaryScreen()
+            if screen is None:
+                self.move(20, 20)
+                return
+            rect = screen.availableGeometry()
+        elif isinstance(anchor_rect, QRect):
+            rect = anchor_rect
+        else:
+            x, y, width, height = anchor_rect
+            rect = QRect(int(x), int(y), max(1, int(width)), max(1, int(height)))
+
+        desired_x = rect.left() + rect.width() - self.width() - margin
+        desired_y = rect.top() + margin
+        self.move(*_fit_point_to_screen(desired_x, desired_y, self.width(), self.height(), margin))
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
@@ -296,6 +305,7 @@ class OverlayManager:
         self._status_enabled = True
         self._latency_text = ""
         self._latency_enabled = True
+        self._status_anchor_rect: Tuple[int, int, int, int] | None = None
         self._region_box: RegionBoxOverlay | None = None
         self._region_box_rect: Tuple[int, int, int, int] | None = None
         self._region_box_enabled = False
@@ -363,6 +373,10 @@ class OverlayManager:
             self._latency_text = ""
         self._sync_status_window()
 
+    def set_status_anchor_rect(self, rect: Tuple[int, int, int, int] | None) -> None:
+        self._status_anchor_rect = rect
+        self._sync_status_window()
+
     def set_region_box(self, rect: Tuple[int, int, int, int], enabled: bool = True) -> None:
         self._region_box_rect = rect
         self._region_box_enabled = enabled
@@ -407,7 +421,7 @@ class OverlayManager:
             set_capture_exclusion(self._status_window, self._capture_exclusion_enabled)
         else:
             self._status_window.update_text(text)
-        self._status_window.move_to_top_right()
+        self._status_window.move_to_top_right(self._status_anchor_rect)
         self._status_window.show()
         self._status_window.raise_()
 

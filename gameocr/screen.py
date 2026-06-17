@@ -173,6 +173,16 @@ def capture_window_region_by_title(title: str, region: RectTuple) -> Screenshot:
     return Screenshot(image=np.ascontiguousarray(crop), rect=(ix, iy, iw, ih))
 
 
+def get_window_rect_by_title(title: str) -> Optional[RectTuple]:
+    title = (title or "").strip()
+    if not title:
+        return None
+    hwnd = find_window_by_title(title)
+    if hwnd is None:
+        return None
+    return _window_rect(hwnd)
+
+
 def find_window_by_title(title: str) -> Optional[int]:
     if win32gui is None:
         raise RuntimeError("后台窗口截图需要安装 pywin32")

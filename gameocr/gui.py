@@ -381,10 +381,6 @@ class MainWindow(QMainWindow):
         self.show_region_box_check = QCheckBox("显示红色选区边框")
         self.show_region_box_check.setToolTip("开启后，选区翻译会在已选择区域仅显示红色边框；关闭时不显示选框。")
         form.addRow("选区显示", self.show_region_box_check)
-
-        hint = QLabel("选择具体窗口后使用 Windows PrintWindow 后台截取目标窗口，不需要隐藏悬浮译文，可减少实时翻译闪烁。")
-        hint.setWordWrap(True)
-        form.addRow("说明", hint)
         return group
 
     def _build_hotkey_group(self) -> QGroupBox:

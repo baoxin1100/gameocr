@@ -437,10 +437,18 @@ def test_target_window_background_pauses_and_foreground_recovers(monkeypatch) ->
     class FakeOverlay:
         def __init__(self) -> None:
             self.clear_count = 0
+            self.clear_region_box_count = 0
+            self.region_box_calls = []
             self.status_calls = []
 
         def clear(self) -> None:
             self.clear_count += 1
+
+        def clear_region_box(self) -> None:
+            self.clear_region_box_count += 1
+
+        def set_region_box(self, rect, visible: bool) -> None:
+            self.region_box_calls.append((rect, visible))
 
         def set_realtime_status(self, active: bool, visible: bool) -> None:
             self.status_calls.append((active, visible))
@@ -448,32 +456,37 @@ def test_target_window_background_pauses_and_foreground_recovers(monkeypatch) ->
         def set_latency_status(self, ocr_ms: float, translate_ms: float, total_ms: float, visible: bool) -> None:
             self.status_calls.append(("latency", visible))
 
-    config = AppConfig(target_window_title="Example Game")
+    config = AppConfig(target_window_title="Example Game", show_region_box=True)
     overlay = FakeOverlay()
     controller = TranslationController(config, overlay)  # type: ignore[arg-type]
-    controller.fullscreen_busy = True
+    controller.overlay_mode = "region"
+    controller.last_region = (10, 20, 300, 200)
+    controller.region_busy = True
     logs = []
     controller.log.connect(logs.append)
 
     monkeypatch.setattr("gameocr.controller.is_target_window_foreground", lambda title: False)
 
-    assert controller._pause_if_target_window_background("fullscreen")
+    assert controller._pause_if_target_window_background("region")
     assert controller.target_window_paused
-    assert not controller.fullscreen_busy
+    assert not controller.region_busy
     assert overlay.clear_count == 1
+    assert overlay.clear_region_box_count == 1
     # The pause triggers set_realtime_status(False, False) then set_latency_status(…, False).
     assert overlay.status_calls[-2] == (False, False)
     assert overlay.status_calls[-1] == ("latency", False)
     assert logs == ["目标窗口不在前台，已暂停 OCR 翻译并隐藏悬浮窗"]
 
-    assert controller._pause_if_target_window_background("fullscreen")
+    assert controller._pause_if_target_window_background("region")
     assert overlay.clear_count == 2
+    assert overlay.clear_region_box_count == 2
     assert logs == ["目标窗口不在前台，已暂停 OCR 翻译并隐藏悬浮窗"]
 
     monkeypatch.setattr("gameocr.controller.is_target_window_foreground", lambda title: True)
 
-    assert not controller._pause_if_target_window_background("fullscreen")
+    assert not controller._pause_if_target_window_background("region")
     assert not controller.target_window_paused
+    assert overlay.region_box_calls[-1] == ((10, 20, 300, 200), True)
     assert logs[-1] == "目标窗口已回到前台，自动恢复 OCR 翻译"
 
 
@@ -671,6 +684,23 @@ def test_restart_active_realtime_restarts_fullscreen_with_new_config(monkeypatch
     controller.stop_all()
 
 
+def test_controller_syncs_status_anchor_to_target_window(monkeypatch) -> None:
+    app = QCoreApplication.instance() or QCoreApplication([])
+    assert app is not None
+    config = AppConfig(target_window_title="Example Game")
+    overlay = FakeControllerOverlay()
+    monkeypatch.setattr("gameocr.controller.get_window_rect_by_title", lambda title: (100, 200, 800, 600))
+
+    controller = TranslationController(config, overlay)  # type: ignore[arg-type]
+
+    assert overlay.status_anchor_calls[-1] == (100, 200, 800, 600)
+
+    config.target_window_title = ""
+    controller.update_config(config)
+
+    assert overlay.status_anchor_calls[-1] is None
+
+
 def test_restart_active_realtime_restarts_region_and_syncs_region_box(monkeypatch) -> None:
     app = QCoreApplication.instance() or QCoreApplication([])
     assert app is not None
@@ -702,6 +732,7 @@ class FakeControllerOverlay:
         self.region_box_calls = []
         self.realtime_status_calls = []
         self.latency_status_calls = []
+        self.status_anchor_calls = []
         self.translation_theme = ""
         self.translation_font_size = 0
         self.hidden = 0
@@ -728,6 +759,9 @@ class FakeControllerOverlay:
     def set_latency_status(self, ocr_ms: float, translate_ms: float, total_ms: float, visible: bool) -> None:
         self.latency_status_calls.append((ocr_ms, translate_ms, total_ms, visible))
 
+    def set_status_anchor_rect(self, rect) -> None:
+        self.status_anchor_calls.append(rect)
+
     def hide_all(self) -> None:
         self.hidden += 1
 
@@ -742,6 +776,50 @@ def test_expanded_translation_width_limit_allows_a_few_extra_characters() -> Non
     assert _expanded_translation_width_limit(40, 720, 12) == 88
     assert _expanded_translation_width_limit(40, 720, 4) == 72
     assert _expanded_translation_width_limit(700, 720, 12) == 720
+
+
+def test_overlay_manager_places_status_window_at_anchor_rect(monkeypatch) -> None:
+    created = []
+    moved_to = []
+    shown = []
+    raised = []
+
+    class FakeStatusBubble:
+        def __init__(self, text: str):
+            self.text = text
+            created.append(self)
+
+        def update_text(self, text: str) -> None:
+            self.text = text
+
+        def move_to_top_right(self, anchor_rect=None) -> None:
+            moved_to.append(anchor_rect)
+
+        def show(self) -> None:
+            shown.append(self)
+
+        def raise_(self) -> None:
+            raised.append(self)
+
+        def hide(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def deleteLater(self) -> None:
+            pass
+
+    monkeypatch.setattr("gameocr.overlay.RealtimeStatusBubble", FakeStatusBubble)
+
+    manager = OverlayManager()
+    manager.set_status_anchor_rect((100, 200, 800, 600))
+    manager.set_realtime_status(True, True)
+
+    assert len(created) == 1
+    assert moved_to[-1] == (100, 200, 800, 600)
+    assert shown == [created[0]]
+    assert raised == [created[0]]
 
 
 def test_overlay_manager_region_box_toggle(monkeypatch) -> None:
