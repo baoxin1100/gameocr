@@ -6,19 +6,21 @@
 
 ## 下载使用（推荐）
 
-普通用户无需安装 Python 环境，直接下载 Windows 单文件 EXE 即可运行：#Linux 用户直接下载二进制文件即可
+普通用户无需安装 Python 环境，直接下载 Windows 单文件 EXE 即可运行（Linux 用户直接下载二进制文件即可）：
 
 - 最新版本：`v1.0.0`
 - 下载地址：[GameOCR-v1.0.0.exe](https://github.com/baoxin1100/gameocr/releases/download/v1.0.0/GameOCR-v1.0.0.exe)
 - Release 页面：[https://github.com/baoxin1100/gameocr/releases/tag/v1.0.0](https://github.com/baoxin1100/gameocr/releases/tag/v1.0.0)
 
 使用步骤：
-
+Windows：
 1. 下载 `GameOCR-v1.0.0.exe`。
 2. 双击运行程序；如系统提示未知发布者，请选择允许运行。
 3. 如果目标游戏以管理员权限运行，请右键 EXE 选择“以管理员身份运行”，否则全局热键、截图或悬浮窗可能无法正常作用于该游戏。
 4. 首次启动后在 GUI 中选择翻译引擎、语言、热键、截图目标和实时翻译参数，点击“保存配置”。
 5. 进入游戏后按默认触发热键 `F8` 开始/停止 OCR 翻译。
+Linux：需要在终端运行：
+`QT_QPA_PLATFORM=wayland 实时汉化工具`
 
 ## 界面与效果
 
@@ -47,11 +49,17 @@
   - Ollama 本地大模型
 
 ## 安装
-
+Windows:
 ```bat
 python -m venv .venv
 .venv\Scripts\activate #对于Linux，应当使用 `source .venv/bin/activate`
 pip install -r requirements.txt
+```
+Linux:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+./.venv/bin/pip install -r requirements.txt
 ```
 
 ## PaddleOCR ONNX 模型目录
@@ -151,14 +159,13 @@ ollama pull gemma4:31b-cloud
 ollama serve
 ```
 
-## 打包 EXE
+## 打包
 
 安装依赖后执行：
-
+Windows&Linux:
 ```bat
 python -m PyInstaller --clean --noconfirm gameocr.spec
 ```
-
 输出目录：
 
 ```text
