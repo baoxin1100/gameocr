@@ -6,7 +6,7 @@
 
 ## 下载使用（推荐）
 
-普通用户无需安装 Python 环境，直接下载 Windows 单文件 EXE 即可运行：
+普通用户无需安装 Python 环境，直接下载 Windows 单文件 EXE 即可运行：#Linux 用户直接下载二进制文件即可
 
 - 最新版本：`v1.0.0`
 - 下载地址：[GameOCR-v1.0.0.exe](https://github.com/baoxin1100/gameocr/releases/download/v1.0.0/GameOCR-v1.0.0.exe)
@@ -50,7 +50,7 @@
 
 ```bat
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate #对于Linux，应当使用 `source .venv/bin/activate`
 pip install -r requirements.txt
 ```
 
