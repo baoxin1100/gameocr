@@ -167,9 +167,13 @@ Windows&Linux:
 python -m PyInstaller --clean --noconfirm gameocr.spec
 ```
 输出目录：
-
+Windows:
 ```text
 dist/实时汉化工具.exe
+```
+Linux:
+```text
+dist/实时汉化工具
 ```
 
 当前打包配置为单文件窗口程序，会自动内置：
@@ -183,7 +187,9 @@ dist/实时汉化工具.exe
 如需使用自定义 PaddleOCR ONNX 模型，请将模型放入 `models/paddleocr` 后再打包；未放置自定义模型时，程序会随包携带 `onnxocr` 发行版内置模型资源。程序图标位于 `assets/gameocr.ico`，打包时会自动作为 EXE 图标并内置到运行资源中；`assets/gameocr_icon.png` 可用于预览或文档展示。图标为紫色玻璃质感圆角矩形，白色文字“实时/汉化”上下两行排列，如需重新生成可执行 `python tools\generate_icon.py`。
 
 本仓库已在 Windows 11 + Python 3.13 conda 环境下验证 PyInstaller 构建通过，生成的 `dist/实时汉化工具.exe` 约 224 MB，并已验证 EXE 可正常启动。
+
 本仓库已在 Ubuntu 2404 + Python 3.12.3 环境下验证 PyInstaller 构建通过，生成的 `dist/实时汉化工具` 约 336.4 MB，并已验证 二进制文件按照终端指令 可正常启动。
+
 PyInstaller 的 `warn-gameocr.txt` 中仍可能出现 Linux/macOS 模块、可选网络库、OpenVINO 转换器扩展等缺失提示，属于依赖包的条件/可选导入，不影响 Windows 桌面 OCR 翻译主流程。
 
 ## 开发/验证
