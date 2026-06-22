@@ -52,7 +52,7 @@ Linux：需要在终端运行：
 Windows:
 ```bat
 python -m venv .venv
-.venv\Scripts\activate #对于Linux，应当使用 `source .venv/bin/activate`
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 Linux:
