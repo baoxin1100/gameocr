@@ -331,10 +331,15 @@ class MainWindow(QMainWindow):
         self.openai_timeout_spin.setRange(1.0, 300.0)
         self.openai_timeout_spin.setSingleStep(1.0)
         self.openai_timeout_spin.setSuffix(" s")
+        self.openai_temperature_spin = QDoubleSpinBox()
+        self.openai_temperature_spin.setRange(0.0, 2.0)
+        self.openai_temperature_spin.setSingleStep(0.1)
+        self.openai_temperature_spin.setDecimals(2)
         form.addRow("接口地址", self.openai_base_url_edit)
         form.addRow("API Key", self.openai_api_key_edit)
         form.addRow("模型名称", self.openai_model_edit)
         form.addRow("请求超时", self.openai_timeout_spin)
+        form.addRow("Temperature", self.openai_temperature_spin)
         return page
 
     def _ollama_page(self) -> QWidget:
@@ -348,10 +353,15 @@ class MainWindow(QMainWindow):
         self.ollama_context_edit = QTextEdit()
         self.ollama_context_edit.setMaximumHeight(70)
         self.ollama_context_edit.setPlaceholderText("可选：游戏专有名词、角色名、翻译风格等上下文")
+        self.ollama_temperature_spin = QDoubleSpinBox()
+        self.ollama_temperature_spin.setRange(0.0, 2.0)
+        self.ollama_temperature_spin.setSingleStep(0.1)
+        self.ollama_temperature_spin.setDecimals(2)
         form.addRow("官网地址", link)
         form.addRow("本地服务地址", self.ollama_base_url_edit)
         form.addRow("模型名", self.ollama_model_edit)
         form.addRow("上下文参数", self.ollama_context_edit)
+        form.addRow("Temperature", self.ollama_temperature_spin)
         return page
 
     def _build_capture_group(self) -> QGroupBox:
@@ -542,10 +552,12 @@ class MainWindow(QMainWindow):
         self.openai_api_key_edit.setText(self.config.openai.api_key)
         self.openai_model_edit.setText(self.config.openai.model)
         self.openai_timeout_spin.setValue(self.config.openai.timeout)
+        self.openai_temperature_spin.setValue(self.config.openai.temperature)
 
         self.ollama_base_url_edit.setText(self.config.ollama.base_url)
         self.ollama_model_edit.setText(self.config.ollama.model)
         self.ollama_context_edit.setPlainText(self.config.ollama.context)
+        self.ollama_temperature_spin.setValue(self.config.ollama.temperature)
 
         self.refresh_window_list(selected_title=self.config.target_window_title, log=False)
         self._set_combo_by_data(self.ocr_resolution_combo, self.config.ocr.resolution)
@@ -586,10 +598,12 @@ class MainWindow(QMainWindow):
         cfg.openai.api_key = self.openai_api_key_edit.text().strip()
         cfg.openai.model = self.openai_model_edit.text().strip()
         cfg.openai.timeout = self.openai_timeout_spin.value()
+        cfg.openai.temperature = self.openai_temperature_spin.value()
 
         cfg.ollama.base_url = self.ollama_base_url_edit.text().strip()
         cfg.ollama.model = self.ollama_model_edit.text().strip()
         cfg.ollama.context = self.ollama_context_edit.toPlainText().strip()
+        cfg.ollama.temperature = self.ollama_temperature_spin.value()
 
         cfg.target_window_title = self.target_window_combo.currentData() or ""
         cfg.ocr.resolution = self.ocr_resolution_combo.currentData() or "original"
@@ -742,6 +756,8 @@ class MainWindow(QMainWindow):
             edit.editingFinished.connect(self._schedule_realtime_auto_apply)
 
         self.openai_timeout_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
+        self.openai_temperature_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
+        self.ollama_temperature_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
         self.translation_font_size_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
         self.interval_spin.valueChanged.connect(self._schedule_realtime_auto_apply)
         self.ollama_context_edit.textChanged.connect(self._schedule_realtime_auto_apply)
