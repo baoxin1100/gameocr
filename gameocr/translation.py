@@ -246,7 +246,7 @@ class OpenAITranslator(BaseTranslator):
                 {"role": "system", "content": _llm_system_prompt()},
                 {"role": "user", "content": prompt},
             ],
-            "temperature": 0.2,
+            "temperature": cfg.temperature,
             "thinking": {"type": "disabled"},
         }
         response = requests.post(_openai_chat_completions_url(cfg.base_url), headers=headers, json=payload, timeout=cfg.timeout)
@@ -277,7 +277,7 @@ class OllamaTranslator(BaseTranslator):
                 ],
                 "stream": False,
                 "think": False,
-                "options": {"temperature": 0.2},
+                "options": {"temperature": cfg.temperature},
             },
             timeout=60,
         )
